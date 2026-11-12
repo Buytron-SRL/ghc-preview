@@ -1727,6 +1727,382 @@ counters.forEach(function (c) {
 if (!c.closest('[data-reveal]')) cio.observe(c);
 });
 }
+(function initJourney() {
+var root = doc.querySelector('[data-journey]');
+if (!root) return;
+var STORAGE_KEY = 'ghc-journey-v1';
+var stepEls = Array.prototype.slice.call(doc.querySelectorAll('[data-journey-step]'));
+if (!stepEls.length) return;
+var stepIds = [];
+var stepById = {};
+var stepTitleById = {};
+var stepsByChapter = {};
+var badgeIds = [];
+var badgeLabelById = {};
+var regionKeys = [];
+stepEls.forEach(function (el) {
+var id = el.getAttribute('data-journey-step-id');
+if (!id) return;
+var chapter = el.getAttribute('data-journey-chapter') || '';
+if (!stepsByChapter[chapter]) stepsByChapter[chapter] = [];
+if (stepsByChapter[chapter].indexOf(id) === -1) stepsByChapter[chapter].push(id);
+if (stepById[id]) return;
+stepById[id] = el;
+stepIds.push(id);
+var title = el.querySelector('.jr-step__body strong');
+stepTitleById[id] = title ? title.textContent : id;
+});
+doc.querySelectorAll('[data-journey-badge]').forEach(function (el) {
+var id = el.getAttribute('data-journey-badge');
+if (!id || badgeIds.indexOf(id) !== -1) return;
+badgeIds.push(id);
+var label = el.querySelector('.jr-badge__body strong');
+badgeLabelById[id] = label ? label.textContent : id;
+});
+doc.querySelectorAll('[data-journey-region-key]').forEach(function (el) {
+var key = el.getAttribute('data-journey-region-key');
+if (key && regionKeys.indexOf(key) === -1) regionKeys.push(key);
+});
+var currentPath = body.getAttribute('data-journey-page') || '';
+var currentRegion = body.getAttribute('data-journey-region') || '';
+var dock = doc.querySelector('.journey-dock');
+var journeySectionEl = doc.getElementById('percorso');
+var panel = doc.querySelector('[data-journey-panel]');
+var toast = doc.querySelector('[data-journey-toast]');
+var toastTitle = doc.querySelector('[data-journey-toast-title]');
+var toastText = doc.querySelector('[data-journey-toast-text]');
+var toastTimer = 0;
+var suppressCurrent = false;
+var LEVELS = [
+{ min: 0, label: 'Orientamento', note: 'Ogni percorso comincia da una domanda.' },
+{ min: 1, label: 'Esplorazione', note: 'Stai conoscendo le persone e i luoghi del Gruppo.' },
+{ min: 4, label: 'Approfondimento', note: 'La rete di cura e i servizi prendono forma.' },
+{ min: 7, label: 'Territorio', note: 'Il Gruppo, regione per regione.' },
+{ min: 10, label: 'Padronanza', note: 'Manca poco per completare il percorso.' },
+{ min: 12, label: 'Percorso completo', note: 'Hai conosciuto il Gruppo in tutte le sue dimensioni.' },
+];
+function levelFor(done) {
+var current = LEVELS[0];
+LEVELS.forEach(function (level) {
+if (done >= level.min) current = level;
+});
+return current;
+}
+function cleanList(value, allowed) {
+if (!Array.isArray(value)) return [];
+var out = [];
+value.forEach(function (item) {
+if (typeof item === 'string' && allowed.indexOf(item) !== -1 && out.indexOf(item) === -1) out.push(item);
+});
+return out;
+}
+function readState() {
+var empty = { steps: [], regions: [], places: [] };
+try {
+var raw = window.localStorage.getItem(STORAGE_KEY);
+if (!raw) return empty;
+var parsed = JSON.parse(raw);
+if (!parsed || typeof parsed !== 'object') return empty;
+return {
+steps: cleanList(parsed.steps, stepIds),
+regions: cleanList(parsed.regions, regionKeys),
+places: Array.isArray(parsed.places)
+? parsed.places.filter(function (item) {
+return typeof item === 'string' && item.length > 0 && item.length < 120;
+})
+: [],
+};
+} catch (err) {
+return empty;
+}
+}
+function writeState(state) {
+try {
+window.localStorage.setItem(
+STORAGE_KEY,
+JSON.stringify({
+steps: state.steps,
+regions: state.regions,
+places: state.places,
+updated: new Date().toISOString(),
+})
+);
+} catch (err) {
+}
+}
+function addUnique(list, value) {
+if (!value || list.indexOf(value) !== -1) return false;
+list.push(value);
+return true;
+}
+function stepMatches(el, path) {
+var prefix = el.getAttribute('data-journey-prefix');
+if (prefix) return path.indexOf(prefix) === 0;
+var exact = el.getAttribute('data-journey-match');
+return !!exact && path === exact;
+}
+function getBadges(state) {
+var unlocked = [];
+if (state.steps.length >= 1) unlocked.push('primo-passo');
+Object.keys(stepsByChapter).forEach(function (chapter) {
+var ids = stepsByChapter[chapter];
+if (!chapter || !ids.length) return;
+var complete = ids.every(function (id) {
+return state.steps.indexOf(id) !== -1;
+});
+if (complete) unlocked.push(chapter);
+});
+if (regionKeys.length && state.regions.length >= regionKeys.length) unlocked.push('passaporto');
+if (state.places.length >= 4) unlocked.push('luoghi');
+var allDone = stepIds.every(function (id) {
+return state.steps.indexOf(id) !== -1;
+});
+if (allDone) unlocked.push('percorso');
+return unlocked.filter(function (id) {
+return badgeIds.indexOf(id) !== -1;
+});
+}
+var state = readState();
+var beforeBadges = getBadges(state);
+var newSteps = [];
+var newBadges = [];
+if (!suppressCurrent) {
+stepEls.forEach(function (el) {
+if (!stepMatches(el, currentPath)) return;
+var id = el.getAttribute('data-journey-step-id');
+if (addUnique(state.steps, id) && newSteps.indexOf(id) === -1) newSteps.push(id);
+});
+}
+addUnique(state.regions, currentRegion);
+var placeMatch = currentPath.match(/^strutture\/([^/]+)\.html$/);
+if (placeMatch && placeMatch[1] !== 'index') addUnique(state.places, placeMatch[1]);
+writeState(state);
+newBadges = getBadges(state).filter(function (id) {
+return beforeBadges.indexOf(id) === -1;
+});
+function refresh() {
+var doneCount = stepIds.filter(function (id) {
+return state.steps.indexOf(id) !== -1;
+}).length;
+var total = stepIds.length;
+var pct = total ? Math.round((doneCount / total) * 100) : 0;
+var level = levelFor(doneCount);
+doc.querySelectorAll('[data-journey-percent]').forEach(function (el) {
+el.textContent = pct + '%';
+});
+doc.querySelectorAll('[data-journey-count]').forEach(function (el) {
+el.textContent = doneCount + ' di ' + total;
+});
+doc.querySelectorAll('[data-journey-dock-percent]').forEach(function (el) {
+el.textContent = pct + '%';
+});
+doc.querySelectorAll('[data-journey-dock-count]').forEach(function (el) {
+el.textContent = doneCount + ' di ' + total + ' tappe';
+});
+doc.querySelectorAll('[data-journey-ring]').forEach(function (el) {
+el.setAttribute('aria-valuenow', String(doneCount));
+el.setAttribute('aria-valuetext', doneCount + ' di ' + total + ' tappe completate');
+});
+doc.querySelectorAll('[data-journey-ring-circle]').forEach(function (el) {
+el.style.strokeDashoffset = String(100 - pct);
+});
+doc.querySelectorAll('[data-journey-level]').forEach(function (el) {
+el.textContent = level.label;
+});
+doc.querySelectorAll('[data-journey-level-note]').forEach(function (el) {
+el.textContent = level.note;
+});
+stepEls.forEach(function (el) {
+var id = el.getAttribute('data-journey-step-id');
+var done = state.steps.indexOf(id) !== -1;
+var current = stepMatches(el, currentPath);
+el.classList.toggle('is-done', done);
+el.classList.toggle('is-current', current);
+var stateEl = el.querySelector('[data-journey-state]');
+if (stateEl) {
+stateEl.textContent = done ? (current ? 'Sei qui' : 'Completata') : current ? 'Sei qui' : 'Da esplorare';
+}
+var link = el.querySelector('a');
+if (link) {
+if (current) link.setAttribute('aria-current', 'page');
+else link.removeAttribute('aria-current');
+}
+});
+Object.keys(stepsByChapter).forEach(function (chapter) {
+var ids = stepsByChapter[chapter];
+if (!chapter || !ids.length) return;
+var chapterDone = ids.filter(function (id) {
+return state.steps.indexOf(id) !== -1;
+}).length;
+doc.querySelectorAll('[data-journey-chapter-count="' + chapter + '"]').forEach(function (el) {
+el.textContent = chapterDone + '/' + ids.length;
+});
+doc.querySelectorAll('[data-journey-chapter-block="' + chapter + '"]').forEach(function (el) {
+el.classList.toggle('is-complete', chapterDone === ids.length);
+});
+});
+var base = body.getAttribute('data-base') || '';
+var nextId = stepIds.filter(function (id) {
+return state.steps.indexOf(id) === -1;
+})[0];
+doc.querySelectorAll('[data-journey-next]').forEach(function (link) {
+var titleEl = link.querySelector('[data-journey-next-title]');
+var metaEl = link.querySelector('[data-journey-next-meta]');
+if (nextId) {
+var stepEl = stepById[nextId];
+var stepLink = stepEl ? stepEl.querySelector('a') : null;
+var stepTitle = stepEl ? stepEl.querySelector('.jr-step__body strong') : null;
+var stepNote = stepEl ? stepEl.querySelector('.jr-step__body span') : null;
+if (stepLink) link.setAttribute('href', stepLink.getAttribute('href'));
+if (titleEl) titleEl.textContent = stepTitle ? stepTitle.textContent : stepTitleById[nextId] || '';
+if (metaEl) metaEl.textContent = stepNote ? stepNote.textContent : '';
+} else {
+link.setAttribute('href', base + 'index.html#percorso');
+if (titleEl) titleEl.textContent = 'Percorso completato';
+if (metaEl) metaEl.textContent = 'Rivedi le dodici tappe del percorso.';
+}
+});
+var unlocked = getBadges(state);
+doc.querySelectorAll('[data-journey-badge]').forEach(function (el) {
+var id = el.getAttribute('data-journey-badge');
+var on = unlocked.indexOf(id) !== -1;
+el.classList.toggle('is-unlocked', on);
+var stateEl = el.querySelector('[data-journey-badge-state]');
+if (stateEl) stateEl.textContent = on ? 'Sbloccato' : 'Da sbloccare';
+});
+doc.querySelectorAll('[data-journey-badge-count]').forEach(function (el) {
+el.textContent = unlocked.length + ' di ' + badgeIds.length;
+});
+doc.querySelectorAll('[data-journey-region-key]').forEach(function (el) {
+var key = el.getAttribute('data-journey-region-key');
+var on = state.regions.indexOf(key) !== -1;
+el.classList.toggle('is-stamped', on);
+var stateEl = el.querySelector('[data-journey-region-state]');
+if (stateEl) stateEl.textContent = on ? 'Visitata' : 'Da visitare';
+var link = el.querySelector('a');
+var nameEl = el.querySelector('.jr-region__body strong');
+if (link && nameEl) {
+link.setAttribute('aria-label', nameEl.textContent + (on ? ' — regione visitata' : ' — regione da visitare'));
+}
+});
+doc.querySelectorAll('[data-journey-region-count]').forEach(function (el) {
+el.textContent = state.regions.length + ' di ' + regionKeys.length;
+});
+}
+function showToast(stepTitles, badgeLabels, override) {
+if (!toast || !toastTitle || !toastText) return;
+if (override) {
+toastTitle.textContent = override.title;
+toastText.textContent = override.text || '';
+} else {
+var lines = [];
+if (stepTitles.length) {
+lines.push(stepTitles.length === 1 ? 'Tappa completata: ' + stepTitles[0] : stepTitles.length + ' nuove tappe completate');
+}
+if (badgeLabels.length) {
+lines.push(badgeLabels.length === 1 ? 'Traguardo sbloccato: ' + badgeLabels[0] : badgeLabels.length + ' nuovi traguardi sbloccati');
+}
+toastTitle.textContent = lines[0] || 'Percorso aggiornato';
+toastText.textContent = lines.slice(1).join(' · ');
+}
+toast.hidden = false;
+window.clearTimeout(toastTimer);
+toastTimer = window.setTimeout(function () {
+toast.hidden = true;
+}, 7000);
+}
+function setExpanded(value) {
+doc.querySelectorAll('[data-journey-open]').forEach(function (btn) {
+if (btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', value ? 'true' : 'false');
+});
+}
+function openPanel() {
+if (!panel) return;
+if (typeof panel.showModal === 'function') {
+if (!panel.open) panel.showModal();
+} else {
+panel.setAttribute('open', '');
+}
+setExpanded(true);
+if (toast) toast.hidden = true;
+}
+function closePanel() {
+if (!panel) return;
+if (typeof panel.close === 'function' && panel.open) panel.close();
+else panel.removeAttribute('open');
+setExpanded(false);
+}
+if (panel) {
+doc.querySelectorAll('[data-journey-open]').forEach(function (btn) {
+btn.addEventListener('click', openPanel);
+});
+doc.querySelectorAll('[data-journey-close]').forEach(function (btn) {
+btn.addEventListener('click', closePanel);
+});
+panel.addEventListener('close', function () {
+setExpanded(false);
+});
+panel.addEventListener('click', function (event) {
+if (event.target === panel) closePanel();
+});
+}
+var resetBtn = doc.querySelector('[data-journey-reset]');
+var resetConfirm = doc.querySelector('[data-journey-reset-confirm]');
+if (resetBtn && resetConfirm) {
+resetBtn.addEventListener('click', function () {
+resetConfirm.hidden = false;
+resetBtn.hidden = true;
+var yes = resetConfirm.querySelector('[data-journey-reset-confirm-btn]');
+if (yes) yes.focus();
+});
+var cancel = resetConfirm.querySelector('[data-journey-reset-cancel]');
+if (cancel) {
+cancel.addEventListener('click', function () {
+resetConfirm.hidden = true;
+resetBtn.hidden = false;
+resetBtn.focus();
+});
+}
+var confirm = resetConfirm.querySelector('[data-journey-reset-confirm-btn]');
+if (confirm) {
+confirm.addEventListener('click', function () {
+state = { steps: [], regions: [], places: [] };
+suppressCurrent = true;
+writeState(state);
+refresh();
+resetConfirm.hidden = true;
+resetBtn.hidden = false;
+resetBtn.focus();
+showToast([], [], {
+title: 'Percorso azzerato',
+text: 'I progressi sono stati cancellati da questo dispositivo.',
+});
+});
+}
+}
+refresh();
+if (dock && journeySectionEl && 'IntersectionObserver' in window) {
+var journeyObserver = new IntersectionObserver(
+function (entries) {
+entries.forEach(function (entry) {
+dock.classList.toggle('is-suppressed', entry.isIntersecting);
+});
+},
+{ threshold: 0.18 }
+);
+journeyObserver.observe(journeySectionEl);
+}
+if (newSteps.length || newBadges.length) {
+showToast(
+newSteps.map(function (id) {
+return stepTitleById[id] || id;
+}),
+newBadges.map(function (id) {
+return badgeLabelById[id] || id;
+})
+);
+}
+})();
 doc.querySelectorAll('[data-demo-form]').forEach(function (form) {
 form.addEventListener('submit', function (e) {
 e.preventDefault();
