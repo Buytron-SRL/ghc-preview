@@ -1222,6 +1222,114 @@ closePanel();
 });
 apply();
 }
+var archiveRoot = doc.querySelector('[data-archive]');
+if (archiveRoot) {
+var aSearch = archiveRoot.querySelector('[data-archive-search]');
+var aArea = archiveRoot.querySelector('[data-archive-area]');
+var aYear = archiveRoot.querySelector('[data-archive-year-select]');
+var aRows = Array.prototype.slice.call(archiveRoot.querySelectorAll('[data-archive-row]'));
+var aYearBlocks = Array.prototype.slice.call(archiveRoot.querySelectorAll('[data-archive-year]'));
+var aCount = archiveRoot.querySelector('[data-archive-count]');
+var aEmpty = archiveRoot.querySelector('[data-archive-empty]');
+var aResets = Array.prototype.slice.call(doc.querySelectorAll('[data-archive-reset]'));
+var aTotal = aRows.length;
+var aState = { area: 'all', year: 'all', q: '' };
+var aParams = new URLSearchParams(window.location.search);
+if (aArea && aParams.get('area')) {
+var wantedArea = aParams.get('area');
+Array.prototype.forEach.call(aArea.options, function (opt) {
+if (opt.value === wantedArea) aState.area = wantedArea;
+});
+}
+if (aYear && aParams.get('anno')) {
+var wantedYear = aParams.get('anno');
+Array.prototype.forEach.call(aYear.options, function (opt) {
+if (opt.value === wantedYear) aState.year = wantedYear;
+});
+}
+if (aParams.get('q')) aState.q = normalise(aParams.get('q'));
+if (aArea) aArea.value = aState.area;
+if (aYear) aYear.value = aState.year;
+if (aSearch && aParams.get('q')) aSearch.value = aParams.get('q');
+function applyArchive() {
+if (aArea) aState.area = aArea.value;
+if (aYear) aState.year = aYear.value;
+if (aSearch) aState.q = normalise(aSearch.value);
+var visible = 0;
+aRows.forEach(function (row) {
+var area = row.getAttribute('data-area');
+var year = row.getAttribute('data-year');
+var text = normalise(row.textContent);
+var ok =
+(aState.area === 'all' || area === aState.area) &&
+(aState.year === 'all' || year === aState.year) &&
+(!aState.q || text.indexOf(aState.q) !== -1);
+row.hidden = !ok;
+if (ok) visible += 1;
+});
+aYearBlocks.forEach(function (block) {
+var shown = block.querySelectorAll('[data-archive-row]:not([hidden])').length;
+block.hidden = shown === 0;
+var blockCount = block.querySelector('[data-archive-year-count]');
+if (blockCount) {
+var baseCount = block.querySelectorAll('[data-archive-row]').length;
+blockCount.textContent =
+shown === baseCount
+? baseCount + (baseCount === 1 ? ' documento' : ' documenti')
+: shown + ' di ' + baseCount;
+}
+});
+if (aCount) {
+aCount.textContent =
+visible === aTotal ? aTotal + ' documenti' : visible + ' di ' + aTotal + ' documenti';
+}
+if (aEmpty) aEmpty.hidden = visible !== 0;
+var active = aState.area !== 'all' || aState.year !== 'all' || aState.q !== '';
+aResets.forEach(function (btn) {
+btn.hidden = !active;
+});
+var qs = [];
+if (aState.area !== 'all') qs.push('area=' + encodeURIComponent(aState.area));
+if (aState.year !== 'all') qs.push('anno=' + encodeURIComponent(aState.year));
+if (aState.q) qs.push('q=' + encodeURIComponent(aSearch ? aSearch.value : aState.q));
+try {
+window.history.replaceState(
+null,
+'',
+window.location.pathname + (qs.length ? '?' + qs.join('&') : '')
+);
+} catch (err) {
+}
+}
+if (aSearch) {
+aSearch.addEventListener('input', applyArchive);
+}
+if (aArea) aArea.addEventListener('change', applyArchive);
+if (aYear) aYear.addEventListener('change', applyArchive);
+aResets.forEach(function (btn) {
+btn.addEventListener('click', function () {
+aState = { area: 'all', year: 'all', q: '' };
+if (aArea) aArea.value = 'all';
+if (aYear) aYear.value = 'all';
+if (aSearch) {
+aSearch.value = '';
+aSearch.focus();
+}
+applyArchive();
+});
+});
+doc.querySelectorAll('[data-archive-preset]').forEach(function (link) {
+link.addEventListener('click', function (event) {
+if (!aArea) return;
+event.preventDefault();
+aArea.value = link.getAttribute('data-archive-preset');
+applyArchive();
+var target = doc.getElementById('documenti');
+if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+});
+});
+applyArchive();
+}
 doc.querySelectorAll('[data-finder]').forEach(function (form) {
 form.addEventListener('submit', function (e) {
 e.preventDefault();
@@ -1947,8 +2055,17 @@ var nextId = stepIds.filter(function (id) {
 return state.steps.indexOf(id) === -1;
 })[0];
 doc.querySelectorAll('[data-journey-next]').forEach(function (link) {
+var labelEl = link.querySelector('[data-journey-next-label]');
 var titleEl = link.querySelector('[data-journey-next-title]');
 var metaEl = link.querySelector('[data-journey-next-meta]');
+if (labelEl) {
+labelEl.textContent =
+doneCount === 0
+? 'Inizia da qui'
+: nextId
+? 'Riprendi da qui'
+: 'Tutte le tappe completate';
+}
 if (nextId) {
 var stepEl = stepById[nextId];
 var stepLink = stepEl ? stepEl.querySelector('a') : null;
@@ -1959,17 +2076,37 @@ if (titleEl) titleEl.textContent = stepTitle ? stepTitle.textContent : stepTitle
 if (metaEl) metaEl.textContent = stepNote ? stepNote.textContent : '';
 } else {
 link.setAttribute('href', base + 'index.html#percorso');
-if (titleEl) titleEl.textContent = 'Percorso completato';
-if (metaEl) metaEl.textContent = 'Rivedi le dodici tappe del percorso.';
+if (titleEl) titleEl.textContent = 'Rivedi la mappa del percorso';
+if (metaEl) metaEl.textContent = 'Puoi rileggere le dodici tappe in qualsiasi momento.';
 }
+});
+doc.querySelectorAll('[data-journey-complete]').forEach(function (el) {
+el.hidden = !(total && doneCount === total);
 });
 var unlocked = getBadges(state);
 doc.querySelectorAll('[data-journey-badge]').forEach(function (el) {
 var id = el.getAttribute('data-journey-badge');
 var on = unlocked.indexOf(id) !== -1;
 el.classList.toggle('is-unlocked', on);
+var totalForBadge = Number(el.getAttribute('data-journey-badge-total') || 0);
+var progress = 0;
+if (id === 'luoghi') progress = state.places.length;
+else if (id === 'passaporto') progress = state.regions.length;
+else if (id === 'percorso') progress = doneCount;
+else if (stepsByChapter[id]) {
+progress = stepsByChapter[id].filter(function (stepId) {
+return state.steps.indexOf(stepId) !== -1;
+}).length;
+}
 var stateEl = el.querySelector('[data-journey-badge-state]');
-if (stateEl) stateEl.textContent = on ? 'Sbloccato' : 'Da sbloccare';
+if (stateEl) {
+if (on) stateEl.textContent = 'Sbloccato';
+else if (totalForBadge > 0) {
+stateEl.textContent = 'Da sbloccare · ' + Math.min(progress, totalForBadge) + '/' + totalForBadge;
+} else {
+stateEl.textContent = 'Da sbloccare';
+}
+}
 });
 doc.querySelectorAll('[data-journey-badge-count]').forEach(function (el) {
 el.textContent = unlocked.length + ' di ' + badgeIds.length;
