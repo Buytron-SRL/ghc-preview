@@ -1767,6 +1767,7 @@ var currentPath = body.getAttribute('data-journey-page') || '';
 var currentRegion = body.getAttribute('data-journey-region') || '';
 var dock = doc.querySelector('.journey-dock');
 var journeySectionEl = doc.getElementById('percorso');
+var sectionRail = doc.querySelector('[data-section-rail]');
 var panel = doc.querySelector('[data-journey-panel]');
 var toast = doc.querySelector('[data-journey-toast]');
 var toastTitle = doc.querySelector('[data-journey-toast-title]');
@@ -2086,6 +2087,7 @@ var journeyObserver = new IntersectionObserver(
 function (entries) {
 entries.forEach(function (entry) {
 dock.classList.toggle('is-suppressed', entry.isIntersecting);
+if (sectionRail) sectionRail.classList.toggle('is-on-dark', entry.isIntersecting);
 });
 },
 { threshold: 0.18 }
