@@ -269,10 +269,11 @@ node.remove();
 function setUnavailable() {
 state.unavailable = true;
 state.health = state.health || { ok: false };
+root.setAttribute("data-maia-state", "off");
 clearLog();
 addMessage(
 "bot",
-"L’assistente non è raggiungibile da questa anteprima. La versione completa di MAIA è attiva sul sito ufficiale Garofalo Health Care. Puoi intanto consultare strutture, servizi e convenzioni dalle pagine del sito.",
+"L’assistente non è raggiungibile in questo momento. Puoi intanto consultare strutture, servizi e convenzioni dalle pagine del sito, oppure riprovare tra poco.",
 { error: false }
 );
 var chips = document.createElement("div");
@@ -405,6 +406,7 @@ setUnavailable();
 return;
 }
 hideStatus();
+root.removeAttribute("data-maia-state");
 setComposerEnabled(true);
 welcome();
 ensureSession(false)
