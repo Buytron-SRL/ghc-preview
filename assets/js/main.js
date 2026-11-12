@@ -2308,6 +2308,541 @@ applySvcFilter();
 });
 });
 }
+var coverageRoots = Array.prototype.slice.call(doc.querySelectorAll('[data-coverage]'));
+coverageRoots.forEach(function (root) {
+var dataEl = root.querySelector('[data-coverage-data]');
+var regionSelect = root.querySelector('[data-coverage-region]');
+var facilitySelect = root.querySelector('[data-coverage-facility]');
+var resultEl = root.querySelector('[data-coverage-result]');
+if (!dataEl || !regionSelect || !facilitySelect || !resultEl) return;
+var list = [];
+try {
+list = JSON.parse(dataEl.textContent || '[]');
+} catch (err) {
+list = [];
+}
+var base = body.getAttribute('data-base') || '';
+var initial = resultEl.innerHTML;
+function escHtml(value) {
+return String(value == null ? '' : value)
+.replace(/&/g, '&amp;')
+.replace(/</g, '&lt;')
+.replace(/>/g, '&gt;')
+.replace(/"/g, '&quot;');
+}
+function fillFacilities(regionKey) {
+facilitySelect.innerHTML = '';
+var placeholder = doc.createElement('option');
+placeholder.value = '';
+placeholder.textContent = regionKey ? 'Scegli una struttura…' : 'Prima scegli la regione…';
+facilitySelect.appendChild(placeholder);
+facilitySelect.disabled = !regionKey;
+if (!regionKey) {
+resultEl.innerHTML = initial;
+return;
+}
+list
+.filter(function (f) {
+return f.regionKey === regionKey;
+})
+.forEach(function (f) {
+var opt = doc.createElement('option');
+opt.value = f.slug;
+opt.textContent = f.name + ' — ' + f.city;
+facilitySelect.appendChild(opt);
+});
+resultEl.innerHTML = initial;
+}
+function renderFacility(f) {
+if (!f) {
+resultEl.innerHTML = initial;
+return;
+}
+var statusClass = f.status === 'attivo' ? 'attivo' : 'corso';
+var mailSubject = encodeURIComponent('Verifica copertura — ' + f.name);
+var mailBody = encodeURIComponent(
+'Buongiorno,\n\nvorrei verificare la copertura per una prestazione presso ' +
+f.name +
+' (' +
+f.city +
+').\n\nPolizza o fondo: \nNumero di adesione: \nPrestazione: \n\nGrazie.'
+);
+var phone = f.phone
+? '<a class="cov-card__contact" href="tel:' + escHtml(f.phoneHref || '') + '">' + icon('phone', 15) + ' <span>' + escHtml(f.phone) + '</span></a>'
+: '';
+var email = f.email
+? '<a class="cov-card__contact" href="mailto:' + escHtml(f.email) + '?subject=' + mailSubject + '">' + icon('mail', 15) + ' <span>Email</span></a>'
+: '';
+var cta = f.email
+? '<a class="btn btn--solid cov-card__cta" href="mailto:' + escHtml(f.email) + '?subject=' + mailSubject + '&body=' + mailBody + '">Scrivi alla struttura ' + icon('arrow', 15) + '</a>'
+: '<a class="btn btn--solid cov-card__cta" href="tel:' + escHtml(f.phoneHref || '') + '">Chiama la struttura ' + icon('phone', 15) + '</a>';
+resultEl.innerHTML =
+'<article class="cov-card">' +
+'<p class="cov-card__eyebrow">' + escHtml(f.region) + ' · ' + escHtml(f.city) + (f.province ? ' (' + escHtml(f.province) + ')' : '') + '</p>' +
+'<h3 class="cov-card__title">' + escHtml(f.name) + '</h3>' +
+'<p class="cov-card__status cov-card__status--' + statusClass + '">' + icon(f.status === 'attivo' ? 'check' : 'clock', 13) + ' ' + escHtml(f.statusLabel) + (f.scheme ? ' · ' + escHtml(f.scheme) : '') + '</p>' +
+'<p class="cov-card__note">' + escHtml(f.note) + '</p>' +
+'<p class="cov-card__address">' + icon('pin', 14) + ' <span>' + escHtml(f.address) + '</span></p>' +
+'<div class="cov-card__contacts">' + phone + email + '<a class="cov-card__contact" href="' + escHtml(f.href) + '">' + icon('file', 15) + ' <span>Scheda struttura</span></a></div>' +
+cta +
+'<p class="cov-card__disclaimer">' + icon('info', 14) + ' Lo stato è quello dichiarato nella scheda ufficiale. La copertura assicurativa va sempre confermata con la struttura o con il tuo fondo.</p>' +
+'</article>';
+}
+function icon(name, size) {
+var paths = {
+phone: '<path d="M7 3h3l2 5-2.5 1.5a12 12 0 0 0 5 5L16 12l5 2v3a2 2 0 0 1-2.2 2A17 17 0 0 1 5 5.2 2 2 0 0 1 7 3Z"/>',
+mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+pin: '<path d="M12 21s7-5.7 7-11a7 7 0 1 0-14 0c0 5.3 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/>',
+file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+check: '<path d="m4 12.5 5 5L20 6.5"/>',
+clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>',
+arrow: '<path d="M4 12h15M13 5l7 7-7 7"/>',
+};
+return '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || '') + '</svg>';
+}
+regionSelect.addEventListener('change', function () {
+fillFacilities(regionSelect.value);
+});
+facilitySelect.addEventListener('change', function () {
+var found = list.filter(function (f) {
+return f.slug === facilitySelect.value;
+})[0];
+renderFacility(found);
+});
+fillFacilities('');
+});
+var agrRoot = doc.querySelector('[data-agr-filter]');
+if (agrRoot) {
+var agrCards = Array.prototype.slice.call(doc.querySelectorAll('[data-agr-card]'));
+var agrChips = Array.prototype.slice.call(agrRoot.querySelectorAll('[data-agr-model]'));
+var agrRegion = agrRoot.querySelector('[data-agr-region]');
+var agrSearch = agrRoot.querySelector('[data-agr-search]');
+var agrCount = doc.querySelector('[data-agr-count]');
+var agrEmpty = doc.querySelector('[data-agr-empty]');
+var agrActive = agrRoot.querySelector('[data-agr-active]');
+var agrPanel = agrRoot.querySelector('[data-agr-panel]');
+var agrToggle = agrRoot.querySelector('[data-agr-toggle]');
+var agrBadge = agrRoot.querySelector('[data-agr-badge]');
+var agrResets = Array.prototype.slice.call(doc.querySelectorAll('[data-agr-reset]'));
+var agrState = { model: 'all', region: 'all', q: '' };
+var agrParams = new URLSearchParams(window.location.search);
+var agrValidModels = agrChips.map(function (c) {
+return c.getAttribute('data-agr-model');
+});
+var agrValidRegions = agrRegion
+? Array.prototype.slice.call(agrRegion.options).map(function (o) {
+return o.value;
+})
+: ['all'];
+if (agrParams.get('modello') && agrValidModels.indexOf(agrParams.get('modello')) !== -1) {
+agrState.model = agrParams.get('modello');
+}
+if (agrParams.get('regione') && agrValidRegions.indexOf(agrParams.get('regione')) !== -1) {
+agrState.region = agrParams.get('regione');
+}
+if (agrParams.get('q')) {
+agrState.q = normalise(agrParams.get('q'));
+if (agrSearch) agrSearch.value = agrParams.get('q');
+}
+function agrRegionLabel() {
+if (!agrRegion || agrState.region === 'all') return '';
+var opt = agrRegion.options[agrRegion.selectedIndex];
+return opt ? opt.textContent : agrState.region;
+}
+function agrModelLabel() {
+var chip = agrChips.filter(function (c) {
+return c.getAttribute('data-agr-model') === agrState.model;
+})[0];
+return chip ? chip.textContent.trim() : agrState.model;
+}
+function agrRenderActive() {
+if (!agrActive) return;
+var items = [];
+if (agrState.model !== 'all') items.push({ key: 'model', label: agrModelLabel() });
+if (agrState.region !== 'all') items.push({ key: 'region', label: agrRegionLabel() });
+if (!items.length && !agrState.q) {
+agrActive.hidden = true;
+agrActive.innerHTML = '';
+return;
+}
+agrActive.hidden = false;
+agrActive.innerHTML =
+'<span class="filter-active__label">Filtri attivi</span>' +
+items
+.map(function (it) {
+return '<button class="filter-active__chip" type="button" data-agr-clear="' + it.key + '">' + it.label + '</button>';
+})
+.join('') +
+'<button class="filter-active__clear" type="button" data-agr-clear="all">Azzera</button>';
+}
+function agrApply() {
+var visible = 0;
+agrCards.forEach(function (card) {
+var models = (card.getAttribute('data-model') || '').split(' ');
+var region = card.getAttribute('data-region');
+var hay = normalise(card.textContent);
+var ok =
+(agrState.model === 'all' || models.indexOf(agrState.model) !== -1) &&
+(agrState.region === 'all' || region === agrState.region) &&
+(!agrState.q || hay.indexOf(agrState.q) !== -1);
+card.hidden = !ok;
+if (ok) visible += 1;
+});
+if (agrCount) {
+agrCount.textContent = visible === agrCards.length ? String(agrCards.length) : visible + ' di ' + agrCards.length;
+}
+if (agrEmpty) agrEmpty.hidden = visible !== 0;
+agrChips.forEach(function (c) {
+var active = c.getAttribute('data-agr-model') === agrState.model;
+c.classList.toggle('is-active', active);
+c.setAttribute('aria-pressed', active ? 'true' : 'false');
+});
+if (agrRegion) agrRegion.value = agrState.region;
+var activeCount = (agrState.model !== 'all' ? 1 : 0) + (agrState.region !== 'all' ? 1 : 0) + (agrState.q ? 1 : 0);
+if (agrBadge) {
+agrBadge.hidden = activeCount === 0;
+agrBadge.textContent = activeCount;
+}
+agrResets.forEach(function (btn) {
+if (btn.classList.contains('filter-reset')) btn.hidden = activeCount === 0;
+});
+agrRenderActive();
+var qs = [];
+if (agrState.model !== 'all') qs.push('modello=' + encodeURIComponent(agrState.model));
+if (agrState.region !== 'all') qs.push('regione=' + encodeURIComponent(agrState.region));
+if (agrState.q) qs.push('q=' + encodeURIComponent(agrSearch ? agrSearch.value : agrState.q));
+try {
+window.history.replaceState(null, '', window.location.pathname + (qs.length ? '?' + qs.join('&') : ''));
+} catch (err) {
+}
+}
+function agrClosePanel() {
+if (!agrPanel || !agrToggle) return;
+agrPanel.classList.remove('is-open');
+agrToggle.setAttribute('aria-expanded', 'false');
+}
+agrChips.forEach(function (chip) {
+chip.addEventListener('click', function () {
+agrState.model = chip.getAttribute('data-agr-model');
+agrApply();
+if (window.matchMedia('(max-width: 720px)').matches) agrClosePanel();
+});
+});
+if (agrRegion) {
+agrRegion.addEventListener('change', function () {
+agrState.region = agrRegion.value;
+agrApply();
+if (window.matchMedia('(max-width: 720px)').matches) agrClosePanel();
+});
+}
+if (agrSearch) {
+agrSearch.addEventListener('input', function () {
+agrState.q = normalise(agrSearch.value);
+agrApply();
+});
+}
+if (agrToggle && agrPanel) {
+agrToggle.addEventListener('click', function () {
+var open = agrPanel.classList.toggle('is-open');
+agrToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+}
+if (agrActive) {
+agrActive.addEventListener('click', function (e) {
+var btn = e.target.closest('[data-agr-clear]');
+if (!btn) return;
+var key = btn.getAttribute('data-agr-clear');
+if (key === 'all' || key === 'model') agrState.model = 'all';
+if (key === 'all' || key === 'region') agrState.region = 'all';
+if (key === 'all') {
+agrState.q = '';
+if (agrSearch) agrSearch.value = '';
+}
+agrApply();
+});
+}
+agrResets.forEach(function (btn) {
+btn.addEventListener('click', function () {
+agrState.model = 'all';
+agrState.region = 'all';
+agrState.q = '';
+if (agrSearch) agrSearch.value = '';
+agrApply();
+});
+});
+agrApply();
+}
+var pForm = doc.querySelector('[data-partnership-form]');
+if (pForm) {
+var pSummary = doc.querySelector('[data-form-summary]');
+var pResult = doc.querySelector('[data-form-result]');
+var pStatus = pForm.querySelector('[data-form-status]');
+var pPreview = doc.querySelector('[data-result-preview]');
+var pMail = doc.querySelector('[data-result-mail]');
+var pResultTitle = doc.querySelector('[data-result-title]');
+var pCopy = doc.querySelector('[data-result-copy]');
+var pDownload = doc.querySelector('[data-result-download]');
+var pEdit = doc.querySelector('[data-result-edit]');
+var pSummaryTitle = doc.querySelector('[data-summary-title]');
+var pLastText = '';
+function pValue(name) {
+var field = pForm.elements[name];
+if (!field) return '';
+if (field instanceof RadioNodeList) return field.value;
+return field.value;
+}
+function pCheckedLabel() {
+var checked = pForm.querySelector('input[name="profilo"]:checked');
+if (!checked) return '';
+var title = checked.closest('.choice') && checked.closest('.choice').querySelector('.choice__title');
+return title ? title.textContent.trim() : '';
+}
+function pSelectLabel(name) {
+var field = pForm.elements[name];
+if (!field || !field.options || field.selectedIndex < 0) return '';
+var opt = field.options[field.selectedIndex];
+return opt && opt.value ? opt.textContent.trim() : '';
+}
+function pUpdateSummary() {
+var map = {
+profilo: pCheckedLabel(),
+organizzazione: pValue('organizzazione'),
+referente: pValue('referente'),
+regione: pSelectLabel('regione'),
+interesse: pSelectLabel('interesse'),
+};
+Object.keys(map).forEach(function (key) {
+var el = doc.querySelector('[data-summary="' + key + '"]');
+if (!el) return;
+var value = (map[key] || '').trim();
+el.textContent = value || 'Da compilare';
+el.classList.toggle('is-empty', !value);
+});
+if (pSummaryTitle) {
+var org = (map.organizzazione || '').trim();
+pSummaryTitle.textContent = org ? 'Convenzione per ' + org : 'Una convenzione su misura';
+}
+}
+function pErrorEl(name) {
+return pForm.querySelector('[data-error-for="' + name + '"]');
+}
+function pSetError(name, message) {
+var el = pErrorEl(name);
+if (!el) return;
+if (!el.id) el.id = 'pform-error-' + name;
+el.textContent = message;
+el.hidden = !message;
+var fields = Array.prototype.slice.call(pForm.querySelectorAll('[name="' + name + '"]'));
+fields.forEach(function (field) {
+if (message) {
+field.setAttribute('aria-invalid', 'true');
+var described = field.getAttribute('aria-describedby') || '';
+if (described.indexOf(el.id) === -1) field.setAttribute('aria-describedby', (described ? described + ' ' : '') + el.id);
+} else {
+field.removeAttribute('aria-invalid');
+}
+});
+var group = pForm.querySelector('[data-field="' + name + '"]');
+if (group) group.classList.toggle('is-invalid', Boolean(message));
+}
+function pClearError(name) {
+pSetError(name, '');
+}
+function pValidate() {
+var errors = [];
+if (!pCheckedLabel()) errors.push(['profilo', 'Seleziona il tipo di organizzazione.']);
+if (!pValue('organizzazione').trim()) errors.push(['organizzazione', 'Indica il nome dell’organizzazione.']);
+if (!pValue('referente').trim()) errors.push(['referente', 'Indica il nome del referente.']);
+var email = pValue('email').trim();
+if (!email) errors.push(['email', 'Indica un indirizzo email.']);
+else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) errors.push(['email', 'Controlla il formato dell’indirizzo email.']);
+if (!pValue('regione')) errors.push(['regione', 'Seleziona la regione principale.']);
+if (!pValue('interesse')) errors.push(['interesse', 'Seleziona l’ambito di interesse.']);
+if (pValue('messaggio').trim().length < 20) errors.push(['messaggio', 'Descrivi il progetto in almeno 20 caratteri.']);
+if (!pForm.elements.privacy.checked) errors.push(['privacy', 'Conferma di aver letto l’informativa privacy.']);
+['profilo', 'organizzazione', 'referente', 'email', 'regione', 'interesse', 'messaggio', 'privacy'].forEach(function (name) {
+pClearError(name);
+});
+errors.forEach(function (entry) {
+pSetError(entry[0], entry[1]);
+});
+return errors;
+}
+function pBuildText() {
+var lines = [
+'RICHIESTA DI CONVENZIONE / PARTNERSHIP',
+'Garofalo Health Care S.p.A.',
+'',
+'Profilo: ' + (pCheckedLabel() || '—'),
+'Organizzazione: ' + (pValue('organizzazione').trim() || '—'),
+'Referente: ' + (pValue('referente').trim() || '—'),
+'Ruolo: ' + (pValue('ruolo').trim() || '—'),
+'Email: ' + (pValue('email').trim() || '—'),
+'Telefono: ' + (pValue('telefono').trim() || '—'),
+'',
+'Regione principale: ' + (pSelectLabel('regione') || '—'),
+'Ambito di interesse: ' + (pSelectLabel('interesse') || '—'),
+'Persone potenzialmente coinvolte: ' + (pSelectLabel('volume') || '—'),
+'Altri territori o sedi: ' + (pValue('territori').trim() || '—'),
+'',
+'Obiettivi e bisogni:',
+(pValue('messaggio').trim() || '—'),
+'',
+'Aggiornamenti sulle iniziative di partnership: ' + (pForm.elements.aggiornamenti.checked ? 'sì' : 'no'),
+'',
+'Richiesta preparata dal sito il ' + new Date().toLocaleDateString('it-IT') + '.',
+'Nessun dato è stato inviato automaticamente dal sito.',
+];
+return lines.join('\n');
+}
+function pShowResult() {
+pLastText = pBuildText();
+if (pPreview) pPreview.textContent = pLastText;
+var subject = encodeURIComponent('Richiesta di convenzione / partnership — ' + (pValue('organizzazione').trim() || 'nuovo partner'));
+if (pMail) {
+pMail.href = 'mailto:' + partnershipEmail + '?subject=' + subject + '&body=' + encodeURIComponent(pLastText);
+}
+if (pSummary) pSummary.hidden = true;
+if (pResult) pResult.hidden = false;
+if (pResultTitle) {
+pResultTitle.focus({ preventScroll: true });
+pResultTitle.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+}
+if (pStatus) {
+pStatus.textContent = 'Bozza pronta. Scegli come inviarla: nessun dato è stato inviato dal sito.';
+pStatus.className = 'pform__status is-success';
+}
+}
+function pHideResult() {
+if (pResult) pResult.hidden = true;
+if (pSummary) pSummary.hidden = false;
+}
+var partnershipEmail = pForm.getAttribute('data-partnership-email') || 'info@garofalohealthcare.com';
+Array.prototype.slice.call(pForm.querySelectorAll('input, select, textarea')).forEach(function (field) {
+field.addEventListener('input', function () {
+if (field.name) pClearError(field.name);
+pUpdateSummary();
+if (pResult && !pResult.hidden) pHideResult();
+});
+field.addEventListener('change', function () {
+if (field.name) pClearError(field.name);
+pUpdateSummary();
+});
+});
+pForm.addEventListener('submit', function (e) {
+e.preventDefault();
+var errors = pValidate();
+if (errors.length) {
+if (pStatus) {
+pStatus.textContent = 'Ci sono campi da completare: controlla le indicazioni in rosso.';
+pStatus.className = 'pform__status is-error';
+}
+var first = pForm.querySelector('[name="' + errors[0][0] + '"]');
+if (first) first.focus();
+return;
+}
+pShowResult();
+});
+if (pCopy) {
+pCopy.addEventListener('click', function () {
+var original = pCopy.innerHTML;
+var done = function () {
+pCopy.innerHTML = 'Testo copiato ' + icon('check', 16);
+window.setTimeout(function () {
+pCopy.innerHTML = original;
+}, 2200);
+};
+if (navigator.clipboard && window.isSecureContext) {
+navigator.clipboard.writeText(pLastText).then(done, function () {
+pFallbackCopy(pLastText, done);
+});
+} else {
+pFallbackCopy(pLastText, done);
+}
+});
+}
+function pFallbackCopy(text, done) {
+var area = doc.createElement('textarea');
+area.value = text;
+area.setAttribute('readonly', '');
+area.style.position = 'fixed';
+area.style.opacity = '0';
+doc.body.appendChild(area);
+area.select();
+try {
+doc.execCommand('copy');
+done();
+} catch (err) {
+}
+doc.body.removeChild(area);
+}
+if (pDownload) {
+pDownload.addEventListener('click', function () {
+var blob = new Blob([pLastText], { type: 'text/plain;charset=utf-8' });
+var url = URL.createObjectURL(blob);
+var link = doc.createElement('a');
+link.href = url;
+link.download = 'richiesta-convenzione-ghc.txt';
+doc.body.appendChild(link);
+link.click();
+doc.body.removeChild(link);
+window.setTimeout(function () {
+URL.revokeObjectURL(url);
+}, 1200);
+});
+}
+if (pEdit) {
+pEdit.addEventListener('click', function () {
+pHideResult();
+var firstField = pForm.querySelector('input, select, textarea');
+if (firstField) firstField.focus();
+});
+}
+pUpdateSummary();
+}
+var pnav = doc.querySelector('[data-pnav]');
+if (pnav) {
+var pnavLinks = Array.prototype.slice.call(pnav.querySelectorAll('a[href^="#"]'));
+var pnavSections = pnavLinks
+.map(function (link) {
+var id = link.getAttribute('href').slice(1);
+return { link: link, section: doc.getElementById(id) };
+})
+.filter(function (entry) {
+return entry.section;
+});
+function pnavSet(activeLink) {
+pnavLinks.forEach(function (link) {
+var active = link === activeLink;
+link.classList.toggle('is-active', active);
+if (active) link.setAttribute('aria-current', 'true');
+else link.removeAttribute('aria-current');
+});
+}
+pnavLinks.forEach(function (link) {
+link.addEventListener('click', function () {
+pnavSet(link);
+});
+});
+if ('IntersectionObserver' in window && pnavSections.length) {
+var pnavObserver = new IntersectionObserver(
+function (entries) {
+entries.forEach(function (entry) {
+if (!entry.isIntersecting) return;
+var match = pnavSections.filter(function (item) {
+return item.section === entry.target;
+})[0];
+if (match) pnavSet(match.link);
+});
+},
+{ rootMargin: '-30% 0px -60% 0px', threshold: 0 }
+);
+pnavSections.forEach(function (item) {
+pnavObserver.observe(item.section);
+});
+}
+}
 var sideLinks = doc.querySelectorAll('.side-nav a');
 if (sideLinks.length) {
 var path = window.location.pathname.split('/').pop();
