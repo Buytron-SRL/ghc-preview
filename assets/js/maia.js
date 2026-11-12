@@ -100,6 +100,7 @@ statusTimer: null,
 lastAnswer: "",
 exhausted: false,
 exhaustedShown: false,
+returnFocus: null,
 };
 function readStored(key) {
 try {
@@ -694,6 +695,14 @@ headers: { "content-type": "application/json" },
 body: JSON.stringify({ token: state.token, text: piece, lang: "it" }),
 signal: controller.signal,
 }).then(function (response) {
+if (response.status === 401 && !attempt) {
+state.token = "";
+state.expiresAt = 0;
+writeStored(STORE_TOKEN, "");
+return ensureSession(true).then(function () {
+return fetchChunk(piece, 1);
+});
+}
 if (response.status === 429 && !attempt) {
 var wait = Number(response.headers.get("retry-after")) || 3;
 if (wait <= 6) {
@@ -740,7 +749,8 @@ voiceBtn.classList.remove("is-playing");
 }
 });
 }
-function setVoice(on) {
+function setVoice(on, options) {
+var replay = !options || options.replay !== false;
 state.voice = Boolean(on);
 saveVoice(state.voice);
 voiceBtn.setAttribute("aria-pressed", state.voice ? "true" : "false");
@@ -751,7 +761,7 @@ if (!state.voice) {
 stopAudio();
 return;
 }
-if (state.lastAnswer && !state.busy) speak(state.lastAnswer);
+if (replay && state.lastAnswer && !state.busy) speak(state.lastAnswer);
 }
 function pickMime() {
 if (!window.MediaRecorder) return "";
@@ -828,7 +838,7 @@ hideStatus();
 input.value = text.slice(0, MAX_INPUT);
 autosize();
 if (!state.voice && state.health && state.health.capabilities && state.health.capabilities.voice) {
-setVoice(true);
+setVoice(true, { replay: false });
 }
 send(text);
 });
@@ -909,6 +919,8 @@ delete el.dataset.maiaInert;
 function openPanel() {
 if (state.open) return;
 state.open = true;
+var current = document.activeElement;
+state.returnFocus = current && current !== document.body && typeof current.focus === "function" ? current : null;
 panel.hidden = false;
 scrim.hidden = false;
 requestAnimationFrame(function () {
@@ -944,7 +956,9 @@ panel.hidden = true;
 scrim.hidden = true;
 }
 }, REDUCED ? 0 : 200);
-fab.focus({ preventScroll: true });
+var back = state.returnFocus && state.returnFocus.isConnected ? state.returnFocus : fab;
+state.returnFocus = null;
+back.focus({ preventScroll: true });
 }
 function onTab(event) {
 var focusables = Array.prototype.slice
@@ -1012,7 +1026,9 @@ onTab(event);
 }
 });
 document.addEventListener("click", function (event) {
-var trigger = event.target && event.target.closest ? event.target.closest("[data-maia-open]") : null;
+var target = event.target && event.target.closest ? event.target : null;
+if (!target) return;
+var trigger = target.closest("[data-maia-open], a[href='#maia'], a[href='#assistente']");
 if (trigger && !root.contains(trigger)) openPanel();
 });
 window.addEventListener("resize", function () {
